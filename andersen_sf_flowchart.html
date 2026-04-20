@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Andersen Salesforce — End-to-End Process Flow</title>
+<style>
+  :root {
+    --bg: #f0f2f7;
+    --surface: #ffffff;
+    --surface2: #e8eaf0;
+    --border: #c8cdd8;
+    --text: #1a1f2e;
+    --text2: #4a5068;
+    --text3: #8890a8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    user-select: none;
+  }
+
+  /* ── Toolbar ── */
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: 48px;
+    background: rgba(255,255,255,0.97);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; padding: 0 16px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  #toolbar h1 {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--text2); text-transform: uppercase;
+    white-space: nowrap; margin-right: 8px;
+  }
+  .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  .btn {
+    padding: 5px 12px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text2); font-size: 11px;
+    cursor: pointer; transition: all .15s; font-family: inherit;
+    white-space: nowrap; font-weight: 500;
+  }
+  .btn:hover { background: var(--surface2); color: var(--text); border-color: #a0a8c0; }
+  .btn.active { background: #ddeeff; border-color: #5090d0; color: #1a50a0; font-weight: 600; }
+  #zoom-info {
+    font-size: 11px; color: var(--text3); min-width: 44px; text-align: right;
+  }
+  .spacer { flex: 1; }
+
+  /* ── Legend ── */
+  #legend {
+    position: fixed; top: 56px; right: 12px; z-index: 90;
+    background: rgba(255,255,255,0.97); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-size: 10px;
+    backdrop-filter: blur(6px); min-width: 168px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  }
+  #legend h2 { font-size: 10px; color: var(--text3); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .leg { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .leg span { color: var(--text2); font-size: 10px; }
+  #legend .sep-l { height: 1px; background: var(--border); margin: 7px 0; }
+  .leg-diamond { width: 10px; height: 10px; background: #c8960a; transform: rotate(45deg); flex-shrink: 0; }
+  .leg-oval { width: 14px; height: 10px; border-radius: 5px; background: #2a8a40; flex-shrink: 0; }
+
+  /* ── Canvas ── */
+  #canvas-wrap {
+    position: fixed; top: 48px; left: 0; right: 0; bottom: 0;
+    overflow: hidden; cursor: grab;
+    background: var(--bg);
+  }
+  #canvas-wrap.dragging { cursor: grabbing; }
+  #canvas {
+    position: absolute; transform-origin: 0 0;
+  }
+
+  /* ── SVG nodes ── */
+  .node { cursor: pointer; }
+  .node rect, .node polygon, .node ellipse {
+    transition: filter .15s;
+  }
+  .node:hover rect, .node:hover polygon, .node:hover ellipse {
+    filter: brightness(0.92) saturate(1.2);
+  }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: fixed; z-index: 200; pointer-events: none;
+    background: rgba(255,255,255,0.98); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-size: 11px;
+    max-width: 300px; display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+  #tooltip h3 { font-size: 12px; margin-bottom: 6px; color: var(--text); font-weight: 600; }
+  #tooltip p { color: var(--text2); line-height: 1.5; font-size: 10.5px; }
+  #tooltip .roles { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  #tooltip .role-pill {
+    padding: 2px 7px; border-radius: 10px; font-size: 9px; font-weight: 600;
+    letter-spacing: .04em;
+  }
+
+  /* Mini-map */
+  #minimap {
+    position: fixed; bottom: 16px; right: 16px; z-index: 90;
+    width: 160px; height: 90px;
+    background: rgba(255,255,255,0.92); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  #minimap canvas { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>Andersen SF · End-to-End Process</h1>
+  <div class="sep"></div>
+  <button class="btn" onclick="resetView()">⌂ Reset</button>
+  <button class="btn" onclick="zoom(1.2)">＋</button>
+  <button class="btn" onclick="zoom(0.8)">－</button>
+  <div class="sep"></div>
+  <button class="btn active" id="btn-all" onclick="filterSection('all')">All</button>
+  <button class="btn" id="btn-sales" onclick="filterSection('sales')">Sales</button>
+  <button class="btn" id="btn-rfp" onclick="filterSection('rfp')">RfP</button>
+  <button class="btn" id="btn-staffing" onclick="filterSection('staffing')">Staffing</button>
+  <div class="spacer"></div>
+  <span id="zoom-info">100%</span>
+</div>
+
+<div id="legend">
+  <h2>Roles</h2>
+  <div class="leg"><div class="leg-dot" style="background:#7c5abf"></div><span>Sales Admin</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#bf7c5a"></div><span>Sales Head</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#4a90d9"></div><span>Sales Mgr / Acct Mgr</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#5ab8a0"></div><span>Staff Head / Staff Mgr</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#c07850"></div><span>Delivery Manager</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#b05080"></div><span>Presale DM / SDM</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#7070c0"></div><span>Recruiter</span></div>
+  <div class="leg"><div class="leg-dot" style="background:#4a5580"></div><span>System (auto)</span></div>
+  <div class="sep-l"></div>
+  <div class="leg"><div class="leg-diamond"></div><span>Decision / Gate</span></div>
+  <div class="leg"><div class="leg-oval"></div><span>Terminal (end)</span></div>
+</div>
+
+<div id="canvas-wrap" id="canvas-wrap">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+
+<div id="tooltip">
+  <h3 id="tt-title"></h3>
+  <p id="tt-desc"></p>
+  <div class="roles" id="tt-roles"></div>
+</div>
+
+<div id="minimap"><canvas id="mm-canvas"></canvas></div>
+
+<script>
+// ─────────────────────────────────────────────
+//  DATA: nodes + edges
+// ─────────────────────────────────────────────
+const W = 180, H = 44, GS = 44, OS = 36; // box, gate, oval sizes
+
+// Sections for filtering
+const SECTIONS = { sales:1, rfp:1, staffing:1 };
+
+const ROLE_COLORS = {
+  'Sales Admin':    { bg:'#ede8ff', border:'#7c5abf', text:'#4a2a8a' },
+  'Sales Head':     { bg:'#fff0e8', border:'#bf7c5a', text:'#8a4a20' },
+  'Sales Mgr':      { bg:'#e8f2ff', border:'#3a80d0', text:'#1a3a80' },
+  'Acct Mgr':       { bg:'#e8f2ff', border:'#3a80d0', text:'#1a3a80' },
+  'Cluster Lead':   { bg:'#e4f6ff', border:'#3a9ab0', text:'#1a5070' },
+  'Staff Head':     { bg:'#e6fff5', border:'#2aa880', text:'#0a5038' },
+  'Staff Mgr':      { bg:'#e6fff5', border:'#2aa880', text:'#0a5038' },
+  'DM':             { bg:'#fff4e6', border:'#c07030', text:'#7a3a08' },
+  'Presale DM':     { bg:'#ffe8f4', border:'#b04070', text:'#700030' },
+  'Presale SDM':    { bg:'#ffe8f4', border:'#b04070', text:'#700030' },
+  'Recruiter':      { bg:'#eeeeff', border:'#6060b0', text:'#303080' },
+  'System':         { bg:'#f0f2f8', border:'#8090b0', text:'#404860' },
+  'Lead Generator': { bg:'#eef6ee', border:'#4a8a4a', text:'#1a4a1a' },
+  'Call Center':    { bg:'#f4f4f4', border:'#909090', text:'#404040' },
+};
+
+// Node types: box, gate (diamond), oval (terminal), start
+// shape: 'rect' | 'diamond' | 'oval' | 'start'
+const nodes = [
+  // ── START ──
+  { id:'start', x:860, y:20, shape:'start', label:'START', section:'sales',
+    desc:'Process begins: a potential lead enters the system.',
+    roles:['System','Lead Generator','Sales Mgr'] },
+
+  // ──────────────── SALES SECTION ────────────────
+  { id:'lead_request', x:770, y:100, shape:'rect', label:'Lead: Request', section:'sales',
+    desc:'New lead record created. Could come from email, web form, marketing campaign, LinkedIn, or manual entry via Lead Generator portal.',
+    roles:['System','Lead Generator','Sales Admin'] },
+
+  { id:'g_category', x:860, y:180, shape:'diamond', label:'Category &\nCountry filled?', section:'sales',
+    desc:'System checks if Category and Country fields are filled. Required to start auto-distribution.',
+    roles:['System'] },
+
+  { id:'fill_fields', x:1080, y:180, shape:'rect', label:'Fill Category\n& Country', section:'sales',
+    desc:'Lead Generator or Sales Manager must fill in Category and Country before the lead can be assigned.',
+    roles:['Lead Generator','Sales Mgr','Sales Admin'] },
+
+  { id:'autodistrib', x:860, y:290, shape:'rect', label:'Auto-Distribution\n(System)', section:'sales',
+    desc:'System finds the best available Sales Manager based on queue rules (Category+Region+Tags). Skips managers at quota or unavailable.',
+    roles:['System'] },
+
+  { id:'g_manager', x:860, y:380, shape:'diamond', label:'Manager\navailable?', section:'sales',
+    desc:'System checks if any manager in the matching queue is available and below quota.',
+    roles:['System'] },
+
+  { id:'alert_sh', x:1080, y:380, shape:'rect', label:'Alert Sales Head\n& Call Center', section:'sales',
+    desc:'If no manager is available, Sales Head and Call Center Operator are notified to resolve manually.',
+    roles:['Sales Head','Call Center'] },
+
+  { id:'lead_mql', x:860, y:490, shape:'rect', label:'Lead: MQL /\nOpen – Not Contacted', section:'sales',
+    desc:'Lead assigned to Sales Manager. Status moves to MQL (marketing qualified) or Open – Not Contacted. Manager is now the lead owner.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead'] },
+
+  { id:'g_decline', x:860, y:580, shape:'diamond', label:'Manager\ndeclines?', section:'sales',
+    desc:'Manager can manually decline the lead. System then reassigns automatically.',
+    roles:['Sales Mgr','System'] },
+
+  { id:'lead_contact', x:860, y:680, shape:'rect', label:'Lead: Contact\nAttempted', section:'sales',
+    desc:'Sales Manager logs contact attempts. Activities (calls, emails, LinkedIn) are recorded.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead'] },
+
+  { id:'g_response', x:860, y:770, shape:'diamond', label:'Lead responds?', section:'sales',
+    desc:'Has the lead responded and engaged?',
+    roles:['Sales Mgr'] },
+
+  { id:'lead_engaged', x:860, y:870, shape:'rect', label:'Lead: Engaged', section:'sales',
+    desc:'Lead is actively communicating. Must fill Primary Contact field to enable conversion.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead'] },
+
+  { id:'g_qualify', x:860, y:960, shape:'diamond', label:'Qualify for\nconversion?', section:'sales',
+    desc:'Is the lead ready to convert? Needs Engaged or Contact Attempted status + Primary Contact filled.',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  { id:'lead_disq', x:1100, y:960, shape:'oval', label:'Disqualified\n(+ reason)', section:'sales',
+    desc:'Lead does not qualify. Reason is required (business or marketing-specific reasons depending on lead owner role). Goes to archive.',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  { id:'lead_freeze', x:640, y:870, shape:'oval', label:'Freezed /\nNot Now', section:'sales',
+    desc:'Lead temporarily paused. Can be revisited later. No active processing.',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  { id:'lead_review', x:640, y:960, shape:'rect', label:'Lead: Review\n(system gate)', section:'sales',
+    desc:'Some status transitions require going through Review first. Only Sales Admin can manually set Review.',
+    roles:['System','Sales Admin'] },
+
+  { id:'convert', x:860, y:1070, shape:'rect', label:'Convert Lead\n→ Account + Contact', section:'sales',
+    desc:'Convert button becomes available. Creates: Account (new or existing), Contact, and optionally an Opportunity. Lead becomes read-only after conversion.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead','Sales Head','Sales Admin'] },
+
+  { id:'g_opp', x:860, y:1170, shape:'diamond', label:'Create\nOpportunity?', section:'sales',
+    desc:'During conversion, choose whether to create an Opportunity now or later manually.',
+    roles:['Sales Mgr'] },
+
+  { id:'no_opp', x:640, y:1170, shape:'oval', label:'Account + Contact\n(no Opportunity yet)', section:'sales',
+    desc:'Lead converted without Opportunity. Opportunity can be created manually later from Contact or Account.',
+    roles:['Sales Mgr','Acct Mgr'] },
+
+  { id:'opp_prosp', x:860, y:1280, shape:'rect', label:'Opportunity:\nProspecting', section:'sales',
+    desc:'New opportunity created. Client identified, sales process started. System auto-creates a Project record.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead','Sales Head','Sales Admin'] },
+
+  { id:'opp_qual', x:860, y:1380, shape:'rect', label:'Opportunity:\nQualification', section:'sales',
+    desc:'Client needs and potential evaluated. RfP can be created at this stage.',
+    roles:['Sales Mgr','Acct Mgr','Cluster Lead','Sales Head','Sales Admin'] },
+
+  { id:'opp_sol', x:860, y:1480, shape:'rect', label:'Opportunity:\nSolution Dev & Proposal', section:'sales',
+    desc:'Developing solution, preparing and sending commercial proposal to the customer.',
+    roles:['Sales Mgr','Acct Mgr','Presale DM','Presale SDM'] },
+
+  { id:'opp_review_cl', x:860, y:1580, shape:'rect', label:'Opportunity:\nClient Review & Evaluation', section:'sales',
+    desc:'Customer considers the offer, evaluates terms. Internal Review stage may be triggered.',
+    roles:['Sales Mgr','Acct Mgr','Sales Head'] },
+
+  { id:'opp_neg', x:860, y:1680, shape:'rect', label:'Opportunity:\nNegotiation & Alignment', section:'sales',
+    desc:'Terms of cooperation, cost, scope, and legal details are discussed.',
+    roles:['Sales Mgr','Acct Mgr','Sales Head','Sales Admin'] },
+
+  { id:'opp_contract', x:860, y:1780, shape:'rect', label:'Opportunity:\nContracting & Team Ramp-up', section:'sales',
+    desc:'Contract signed, team is being prepared for project launch. Staffing process starts here.',
+    roles:['Sales Mgr','Acct Mgr','Sales Head','Presale DM'] },
+
+  { id:'g_deal', x:860, y:1880, shape:'diamond', label:'Deal outcome?', section:'sales',
+    desc:'Final outcome of the Opportunity.',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  { id:'opp_won', x:700, y:1970, shape:'oval', label:'Closed Won ✓', section:'sales',
+    desc:'Deal successfully closed. Project exists. Can be Archived Won after Closed Won (requires Sales Admin approval).',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  { id:'opp_lost', x:1020, y:1970, shape:'oval', label:'Closed Lost ✗', section:'sales',
+    desc:'Opportunity lost. System notifies team. Reason should be documented.',
+    roles:['Sales Mgr','Sales Head','Sales Admin'] },
+
+  // ──────────────── RFP SECTION ────────────────
+  // RfP can be triggered from Prospecting or Qualification stages
+  { id:'rfp_start', x:300, y:1380, shape:'rect', label:'RfP Created\n(from Opportunity)', section:'rfp',
+    desc:'New RfP record created. Can only be created if Opportunity is in Prospecting or Qualification status. One active RfP per Opportunity.',
+    roles:['Sales Mgr','Acct Mgr','Sales Head','Sales Admin'] },
+
+  { id:'rfp_dm', x:300, y:1480, shape:'rect', label:'RfP: DM Needed', section:'rfp',
+    desc:'Presale Delivery Manager involvement is required. Status set when DM review/estimation is needed.',
+    roles:['Sales Mgr','Sales Admin'] },
+
+  { id:'g_dm_assigned', x:300, y:1580, shape:'diamond', label:'Presale DM\nassigned?', section:'rfp',
+    desc:'System checks if a Presale DM has been assigned to the RfP.',
+    roles:['System'] },
+
+  { id:'rfp_start_s', x:300, y:1680, shape:'rect', label:'RfP: Start', section:'rfp',
+    desc:'Active working stage. Presale DM is working on the RfP. Can auto-transition from DM Needed when DM is assigned.',
+    roles:['Presale DM','Presale SDM'] },
+
+  { id:'rfp_qual', x:300, y:1780, shape:'rect', label:'RfP: Qualification', section:'rfp',
+    desc:'RfP evaluated to determine feasibility. Scope, budget, and client requirements assessed.',
+    roles:['Presale DM','Presale SDM'] },
+
+  { id:'g_rfp_feasible', x:300, y:1880, shape:'diamond', label:'Feasible\n& qualified?', section:'rfp',
+    desc:'Is the RfP feasible and worth pursuing? If not, move to Failed or Hold.',
+    roles:['Presale DM','Sales Mgr','Sales Admin'] },
+
+  { id:'rfp_prep', x:300, y:1980, shape:'rect', label:'RfP: Preparation\n(fill mandatory fields)', section:'rfp',
+    desc:'Active preparation: tech stack, rate, staffing contacts, expected start date must be filled. System blocks transition if incomplete.',
+    roles:['Presale DM','Presale SDM'] },
+
+  { id:'rfp_ready', x:300, y:2080, shape:'rect', label:'RfP: Proposal Ready\n(upload Proposal File)', section:'rfp',
+    desc:'Proposal prepared. Requires at least one Proposal File uploaded. Estimation and other files optional.',
+    roles:['Presale DM','Presale SDM','Sales Mgr'] },
+
+  { id:'rfp_done', x:300, y:2180, shape:'rect', label:'RfP: Done', section:'rfp',
+    desc:'All tasks and documents finalized. Awaiting final decision.',
+    roles:['Presale DM','Sales Mgr','Acct Mgr'] },
+
+  { id:'g_rfp_outcome', x:300, y:2280, shape:'diamond', label:'RfP outcome?', section:'rfp',
+    desc:'Final outcome of the RfP process.',
+    roles:['Sales Mgr','Presale DM','Sales Admin'] },
+
+  { id:'rfp_success', x:180, y:2380, shape:'oval', label:'RfP: Success ✓\n(upload SoW)', section:'rfp',
+    desc:'RfP successfully completed. SoW file upload is required. Terminal status – cannot be changed. Triggers: Opportunity → Closed Won, project sent to 1C.',
+    roles:['Presale DM','Presale SDM','Sales Mgr'] },
+
+  { id:'rfp_failed', x:420, y:2380, shape:'oval', label:'RfP: Failed ✗\n(+ reason + file)', section:'rfp',
+    desc:'RfP did not meet criteria. Fail reason required, file upload optional. Terminal status – cannot be changed.',
+    roles:['Presale DM','Sales Mgr','Sales Admin'] },
+
+  { id:'rfp_hold', x:90, y:2080, shape:'rect', label:'RfP: Hold\n(+ hold reason)', section:'rfp',
+    desc:'RfP temporarily paused. Hold reason required. Can resume to Preparation, Proposal Ready, or Qualification.',
+    roles:['Presale DM','Sales Mgr','Sales Admin'] },
+
+  // ──────────────── STAFFING SECTION ────────────────
+  { id:'demand_draft', x:1340, y:1780, shape:'rect', label:'Demand: Draft', section:'staffing',
+    desc:'Demand created from Opportunity (planning stage). Cannot assign candidates yet. Created by Sales Mgr (if Opp owner), DM, PM, or Staff.',
+    roles:['Sales Mgr','Sales Head','DM','Staff Head','Staff Mgr','Sales Admin'] },
+
+  { id:'g_demand_fields', x:1340, y:1880, shape:'diamond', label:'All required\nfields filled?', section:'staffing',
+    desc:'System checks: Department, Role on project, Main Technology, Planned Start, Probability, English, Level.',
+    roles:['System'] },
+
+  { id:'demand_fill', x:1530, y:1880, shape:'rect', label:'Fill mandatory\ndemand fields', section:'staffing',
+    desc:'Fill in: Department, Role, Main Technology, Planned Start, Probability, English level, Seniority Level.',
+    roles:['Staff Head','Staff Mgr','Sales Mgr','DM'] },
+
+  { id:'demand_open', x:1340, y:1990, shape:'rect', label:'Demand: Open', section:'staffing',
+    desc:'Demand available for staffing. Candidates can now be assigned. Status changes are driven by candidate statuses.',
+    roles:['Staff Head','Staff Mgr','Sales Mgr','Sales Head'] },
+
+  { id:'add_candidate', x:1340, y:2090, shape:'rect', label:'Add Candidate\nto Demand', section:'staffing',
+    desc:'Staff Head or Staff Manager searches Supply Table and links candidate to demand. System auto-sets candidate to Pre-selected.',
+    roles:['Staff Head','Staff Mgr'] },
+
+  { id:'cand_presel', x:1340, y:2190, shape:'rect', label:'Candidate:\nPre-selected (auto)', section:'staffing',
+    desc:'Automatically set when candidate is linked to demand. Only RM, Staff Head, Staff Manager can see and work this status. Internal next steps: RM discussion, Availability check.',
+    roles:['Staff Head','Staff Mgr'] },
+
+  { id:'g_presel_ok', x:1340, y:2290, shape:'diamond', label:'Move to\nProposed?', section:'staffing',
+    desc:'Is the candidate worth proposing? Staff Head/Staff Manager decide.',
+    roles:['Staff Head','Staff Mgr'] },
+
+  { id:'cand_proposed', x:1340, y:2390, shape:'rect', label:'Candidate: Proposed\n(Staff H/M set status)', section:'staffing',
+    desc:'Candidate actively prepared. DM uses internal (CV prep, run-ups, English check) and external (CV sent, screening, tech task) next steps.',
+    roles:['Staff Head','Staff Mgr','DM'] },
+
+  { id:'g_cv_sent', x:1340, y:2490, shape:'diamond', label:'CV sent\nto client?', section:'staffing',
+    desc:'System checks CV sent date when moving to Booked. Modal prompts to confirm or mark "not sent".',
+    roles:['System','DM'] },
+
+  { id:'cand_booked', x:1340, y:2600, shape:'rect', label:'Candidate: Booked\n(Staff H/M set status)', section:'staffing',
+    desc:'Candidate reserved for the demand. Multiple candidates can be Booked simultaneously. Client interview may happen here.',
+    roles:['Staff Head','Staff Mgr','DM'] },
+
+  { id:'g_approved', x:1340, y:2700, shape:'diamond', label:'Client approves\ncandidate?', section:'staffing',
+    desc:'Has the client approved the candidate? Staff Head/Mgr set Onboarding manually after receiving approval info.',
+    roles:['Staff Head','Staff Mgr'] },
+
+  { id:'cand_onboard', x:1340, y:2810, shape:'rect', label:'Candidate: Onboarding\n(1 per demand only!)', section:'staffing',
+    desc:'Candidate approved and preparing to start. ONLY ONE per demand allowed. DM sets "Set allocation in 1C" as next step + start date. Further next step changes blocked.',
+    roles:['Staff Head','Staff Mgr','DM'] },
+
+  { id:'g_1c_match', x:1340, y:2920, shape:'diamond', label:'1C allocation\nmatches demand?', section:'staffing',
+    desc:'System auto-checks: project ID match + allocation type match + start date arrived.',
+    roles:['System'] },
+
+  { id:'cand_assigned', x:1340, y:3030, shape:'oval', label:'Candidate: Assigned\n(auto by System)', section:'staffing',
+    desc:'Automatic – system sets when all 1C conditions met. Demand also becomes Assigned. Demand is now read-only. Only next step: Terminated.',
+    roles:['System'] },
+
+  { id:'cand_term', x:1340, y:3130, shape:'oval', label:'Terminated\n(auto on project stop)', section:'staffing',
+    desc:'Automatic – fires when project Stop Date or allocation Stop Date arrives in 1C. Candidate no longer bound to demand.',
+    roles:['System'] },
+
+  // Terminal statuses for candidate
+  { id:'cand_cancel', x:1570, y:2600, shape:'oval', label:'Cancel\n(+ reason + skills)', section:'staffing',
+    desc:'Candidate no longer considered. Reason required (skill mismatch, low profit, customer declined, etc.). Candidate moved to archive.',
+    roles:['Staff Head','Staff Mgr','DM'] },
+
+  { id:'cand_reject', x:1570, y:2700, shape:'oval', label:'Reject\n(DM only!)', section:'staffing',
+    desc:'ONLY the DM responsible for the demand can set Reject. Reason required (lack of domain, language, soft skills, CV refused by client). Archived.',
+    roles:['DM'] },
+
+  { id:'cand_fail', x:1570, y:2810, shape:'oval', label:'Fail\n(+ reason + skills)', section:'staffing',
+    desc:'Candidate cannot continue (low English, low skills, refused, chose another demand, dismissed). Reason required. Archived.',
+    roles:['Staff Head','Staff Mgr','DM'] },
+
+  // Red Vacancy
+  { id:'red_vac', x:1570, y:2490, shape:'rect', label:'Red Vacancy\n(+ Search Sprints)', section:'staffing',
+    desc:'Created when demand is In Progress/Proposed/Booked/Onboarding. Triggers external recruiting. Search Sprints assigned to Recruiters. Only one active vacancy per demand.',
+    roles:['Staff Head','Staff Mgr'] },
+
+  { id:'recruiter_search', x:1570, y:2390, shape:'rect', label:'Recruiter:\nSearch Sprint', section:'staffing',
+    desc:'Recruiter assigned to sprint. Searches market. Sprint status: Done (candidate found) or Closed (no candidate).',
+    roles:['Recruiter'] },
+
+  // Demand cancel
+  { id:'demand_cancel', x:1530, y:1990, shape:'oval', label:'Demand: Cancel', section:'staffing',
+    desc:'Demand cancelled. All assigned candidates auto-removed (status → Cancel). Can be triggered manually or auto by system when project is stopped.',
+    roles:['Staff Head','Staff Mgr','Sales Mgr','Sales Head','System'] },
+];
+
+// Edges: from, to, label, style ('solid'|'dashed'), color
+const edges = [
+  // START
+  { from:'start', to:'lead_request', label:'', style:'solid', color:'#7090c0' },
+
+  // Lead lifecycle
+  { from:'lead_request', to:'g_category', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_category', to:'autodistrib', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_category', to:'fill_fields', label:'no', style:'dashed', color:'#c07030' },
+  { from:'fill_fields', to:'g_category', label:'retry', style:'dashed', color:'#c07030' },
+  { from:'autodistrib', to:'g_manager', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_manager', to:'lead_mql', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_manager', to:'alert_sh', label:'no', style:'dashed', color:'#d03030' },
+  { from:'alert_sh', to:'autodistrib', label:'resolve &\nretry', style:'dashed', color:'#d03030' },
+  { from:'lead_mql', to:'g_decline', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_decline', to:'lead_contact', label:'no', style:'solid', color:'#2a9a60' },
+  { from:'g_decline', to:'autodistrib', label:'yes → reassign', style:'dashed', color:'#d03030' },
+  { from:'lead_contact', to:'g_response', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_response', to:'lead_engaged', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_response', to:'lead_freeze', label:'not now', style:'dashed', color:'#c07030' },
+  { from:'lead_engaged', to:'g_qualify', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_qualify', to:'lead_disq', label:'no', style:'dashed', color:'#d03030' },
+  { from:'g_qualify', to:'lead_review', label:'via Review', style:'dashed', color:'#b08800' },
+  { from:'lead_review', to:'convert', label:'approved', style:'solid', color:'#b08800' },
+  { from:'g_qualify', to:'convert', label:'yes (direct)', style:'solid', color:'#2a9a60' },
+  { from:'convert', to:'g_opp', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_opp', to:'opp_prosp', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_opp', to:'no_opp', label:'no (skip)', style:'dashed', color:'#b08800' },
+  { from:'opp_prosp', to:'opp_qual', label:'', style:'solid', color:'#7090c0' },
+  { from:'opp_qual', to:'opp_sol', label:'', style:'solid', color:'#7090c0' },
+  { from:'opp_sol', to:'opp_review_cl', label:'', style:'solid', color:'#7090c0' },
+  { from:'opp_review_cl', to:'opp_neg', label:'', style:'solid', color:'#7090c0' },
+  { from:'opp_neg', to:'opp_contract', label:'', style:'solid', color:'#7090c0' },
+  { from:'opp_contract', to:'g_deal', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_deal', to:'opp_won', label:'Won', style:'solid', color:'#2a9a60' },
+  { from:'g_deal', to:'opp_lost', label:'Lost', style:'dashed', color:'#d03030' },
+
+  // RfP triggered from Prospecting or Qualification
+  { from:'opp_prosp', to:'rfp_start', label:'create RfP\n(optional)', style:'dashed', color:'#b04070' },
+  { from:'opp_qual', to:'rfp_start', label:'create RfP\n(optional)', style:'dashed', color:'#b04070' },
+
+  // RfP flow
+  { from:'rfp_start', to:'rfp_dm', label:'', style:'solid', color:'#7090c0' },
+  { from:'rfp_dm', to:'g_dm_assigned', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_dm_assigned', to:'rfp_start_s', label:'yes (auto)', style:'solid', color:'#2a9a60' },
+  { from:'g_dm_assigned', to:'rfp_dm', label:'waiting', style:'dashed', color:'#b08800' },
+  { from:'rfp_start_s', to:'rfp_qual', label:'', style:'solid', color:'#7090c0' },
+  { from:'rfp_qual', to:'g_rfp_feasible', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_rfp_feasible', to:'rfp_prep', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_rfp_feasible', to:'rfp_failed', label:'no', style:'dashed', color:'#d03030' },
+  { from:'g_rfp_feasible', to:'rfp_hold', label:'pause', style:'dashed', color:'#b08800' },
+  { from:'rfp_prep', to:'rfp_ready', label:'mandatory\nfields filled', style:'solid', color:'#7090c0' },
+  { from:'rfp_prep', to:'rfp_hold', label:'pause', style:'dashed', color:'#b08800' },
+  { from:'rfp_ready', to:'rfp_done', label:'proposal\nuploaded', style:'solid', color:'#7090c0' },
+  { from:'rfp_ready', to:'rfp_hold', label:'pause', style:'dashed', color:'#b08800' },
+  { from:'rfp_done', to:'g_rfp_outcome', label:'', style:'solid', color:'#7090c0' },
+  { from:'rfp_done', to:'rfp_hold', label:'pause', style:'dashed', color:'#b08800' },
+  { from:'g_rfp_outcome', to:'rfp_success', label:'success', style:'solid', color:'#2a9a60' },
+  { from:'g_rfp_outcome', to:'rfp_failed', label:'failed', style:'dashed', color:'#d03030' },
+  { from:'g_rfp_outcome', to:'rfp_prep', label:'back to prep', style:'dashed', color:'#b08800' },
+  { from:'rfp_hold', to:'rfp_prep', label:'resume', style:'dashed', color:'#b08800' },
+  { from:'rfp_success', to:'opp_won', label:'→ Closed Won\n+ Send to 1C', style:'solid', color:'#2a9a60' },
+
+  // Staffing triggered from Contracting
+  { from:'opp_contract', to:'demand_draft', label:'create demand', style:'dashed', color:'#30a070' },
+
+  // Demand flow
+  { from:'demand_draft', to:'g_demand_fields', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_demand_fields', to:'demand_open', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_demand_fields', to:'demand_fill', label:'no', style:'dashed', color:'#c07030' },
+  { from:'demand_fill', to:'g_demand_fields', label:'retry', style:'dashed', color:'#c07030' },
+  { from:'demand_open', to:'demand_cancel', label:'project stopped\nor manual', style:'dashed', color:'#d03030' },
+  { from:'demand_open', to:'add_candidate', label:'', style:'solid', color:'#7090c0' },
+  { from:'add_candidate', to:'cand_presel', label:'auto', style:'solid', color:'#2a9a60' },
+  { from:'cand_presel', to:'g_presel_ok', label:'', style:'solid', color:'#7090c0' },
+  { from:'g_presel_ok', to:'cand_proposed', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_presel_ok', to:'cand_cancel', label:'not suitable', style:'dashed', color:'#d03030' },
+  { from:'cand_proposed', to:'g_cv_sent', label:'', style:'solid', color:'#7090c0' },
+  { from:'cand_proposed', to:'red_vac', label:'open Red\nVacancy', style:'dashed', color:'#6060b0' },
+  { from:'red_vac', to:'recruiter_search', label:'', style:'solid', color:'#6060b0' },
+  { from:'g_cv_sent', to:'cand_booked', label:'confirmed', style:'solid', color:'#2a9a60' },
+  { from:'cand_proposed', to:'cand_cancel', label:'cancel', style:'dashed', color:'#d03030' },
+  { from:'cand_proposed', to:'cand_fail', label:'fail', style:'dashed', color:'#d03030' },
+  { from:'cand_booked', to:'g_approved', label:'', style:'solid', color:'#7090c0' },
+  { from:'cand_booked', to:'cand_cancel', label:'cancel', style:'dashed', color:'#d03030' },
+  { from:'cand_booked', to:'cand_reject', label:'reject\n(DM only)', style:'dashed', color:'#c07030' },
+  { from:'g_approved', to:'cand_onboard', label:'yes', style:'solid', color:'#2a9a60' },
+  { from:'g_approved', to:'cand_reject', label:'rejected\n(DM only)', style:'dashed', color:'#c07030' },
+  { from:'cand_onboard', to:'g_1c_match', label:'', style:'solid', color:'#7090c0' },
+  { from:'cand_onboard', to:'cand_fail', label:'fail', style:'dashed', color:'#d03030' },
+  { from:'g_1c_match', to:'cand_assigned', label:'yes (auto)', style:'solid', color:'#2a9a60' },
+  { from:'g_1c_match', to:'cand_onboard', label:'waiting for\n1C sync', style:'dashed', color:'#b08800' },
+  { from:'cand_assigned', to:'cand_term', label:'project stop\n(auto)', style:'solid', color:'#7090c0' },
+];
+
+// ─────────────────────────────────────────────
+//  LAYOUT helpers
+// ─────────────────────────────────────────────
+function nodeById(id){ return nodes.find(n=>n.id===id); }
+
+function nodeBounds(n){
+  if(n.shape==='diamond'){
+    const s=GS; return { x:n.x-s, y:n.y-s/2, w:s*2, h:s };
+  } else if(n.shape==='oval'||n.shape==='start'){
+    return { x:n.x-OS, y:n.y-OS/2+4, w:OS*2, h:OS-8 };
+  } else {
+    return { x:n.x-W/2, y:n.y-H/2, w:W, h:H };
+  }
+}
+
+function nodeCenter(n){ return { x:n.x, y:n.y }; }
+
+// Edge port: find point on border closest to target
+function edgePort(from, to){
+  const fb=nodeBounds(from), tb=nodeBounds(to);
+  const fc=nodeCenter(from), tc=nodeCenter(to);
+  const dx=tc.x-fc.x, dy=tc.y-fc.y;
+  // Exit port (bottom by default, left/right if more horizontal)
+  let ex=fc.x, ey=fc.y;
+  const adx=Math.abs(dx), ady=Math.abs(dy);
+  if(ady>adx*0.5){
+    // mostly vertical
+    if(dy>0){ ey=fb.y+fb.h; }else{ ey=fb.y; }
+    ex=fc.x;
+  } else {
+    if(dx>0){ ex=fb.x+fb.w; }else{ ex=fb.x; }
+    ey=fc.y;
+  }
+  // Entry port
+  let ix=tc.x, iy=tc.y;
+  if(ady>adx*0.5){
+    if(dy>0){ iy=tb.y; }else{ iy=tb.y+tb.h; }
+    ix=tc.x;
+  } else {
+    if(dx>0){ ix=tb.x; }else{ ix=tb.x+tb.w; }
+    iy=tc.y;
+  }
+  return { ex, ey, ix, iy };
+}
+
+// ─────────────────────────────────────────────
+//  SVG RENDERING
+// ─────────────────────────────────────────────
+const SVG_NS='http://www.w3.org/2000/svg';
+const svg=document.getElementById('canvas');
+let defs=document.createElementNS(SVG_NS,'defs');
+
+// Arrow markers
+function addMarker(id,color){
+  const m=document.createElementNS(SVG_NS,'marker');
+  m.setAttribute('id',id);
+  m.setAttribute('viewBox','0 0 10 10');
+  m.setAttribute('refX','8'); m.setAttribute('refY','5');
+  m.setAttribute('markerWidth','6'); m.setAttribute('markerHeight','6');
+  m.setAttribute('orient','auto-start-reverse');
+  const p=document.createElementNS(SVG_NS,'path');
+  p.setAttribute('d','M2 1L8 5L2 9');
+  p.setAttribute('fill','none');
+  p.setAttribute('stroke',color);
+  p.setAttribute('stroke-width','1.5');
+  p.setAttribute('stroke-linecap','round');
+  p.setAttribute('stroke-linejoin','round');
+  m.appendChild(p); defs.appendChild(m);
+}
+
+const markerColors=['#7090c0','#2a9a60','#d03030','#b08800','#c07030','#b04070','#6060b0','#6070a0'];
+markerColors.forEach((c,i)=>addMarker('arr'+i,c));
+function markerForColor(c){
+  const i=markerColors.indexOf(c);
+  return i>=0?'url(#arr'+i+')':'url(#arr0)';
+}
+svg.appendChild(defs);
+
+// Compute canvas bounds
+function canvasBounds(){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  nodes.forEach(n=>{
+    const b=nodeBounds(n);
+    minX=Math.min(minX,b.x-20);
+    minY=Math.min(minY,b.y-20);
+    maxX=Math.max(maxX,b.x+b.w+20);
+    maxY=Math.max(maxY,b.y+b.h+40);
+  });
+  return {minX,minY,maxX,maxY};
+}
+
+const bounds=canvasBounds();
+const CW=bounds.maxX-bounds.minX+100;
+const CH=bounds.maxY-bounds.minY+100;
+svg.setAttribute('width',CW);
+svg.setAttribute('height',CH);
+svg.setAttribute('viewBox',`${bounds.minX-50} ${bounds.minY-50} ${CW} ${CH}`);
+
+// Section background bands
+const sectionBands=[
+  { label:'SALES PROCESS', x:bounds.minX-40, y:80, w:530, color:'#edf2ff', border:'#b0bce8' },
+  { label:'RFP PROCESS',   x:50, y:1360, w:440, color:'#f5eeff', border:'#c0a0e0' },
+  { label:'STAFFING PROCESS', x:1260, y:1750, w:380, color:'#edfaf4', border:'#90d0b0' },
+];
+
+// Draw section background
+const bgGroup=document.createElementNS(SVG_NS,'g');
+bgGroup.setAttribute('id','bg-group');
+sectionBands.forEach(b=>{
+  // Calculate proper height from nodes in that section
+  let sMinY=Infinity, sMaxY=-Infinity;
+  nodes.forEach(n=>{
+    if( (b.label.toLowerCase().includes('sales') && n.section==='sales') ||
+        (b.label.toLowerCase().includes('rfp') && n.section==='rfp') ||
+        (b.label.toLowerCase().includes('staffing') && n.section==='staffing') ){
+      const nb=nodeBounds(n);
+      sMinY=Math.min(sMinY, nb.y-30);
+      sMaxY=Math.max(sMaxY, nb.y+nb.h+30);
+    }
+  });
+  const r=document.createElementNS(SVG_NS,'rect');
+  r.setAttribute('x', b.x);
+  r.setAttribute('y', sMinY-10);
+  r.setAttribute('width', b.w);
+  r.setAttribute('height', sMaxY-sMinY+20);
+  r.setAttribute('rx','16');
+  r.setAttribute('fill', b.color);
+  r.setAttribute('stroke', b.border);
+  r.setAttribute('stroke-width','1');
+  bgGroup.appendChild(r);
+  const t=document.createElementNS(SVG_NS,'text');
+  t.setAttribute('x', b.x+16);
+  t.setAttribute('y', sMinY+8);
+  t.setAttribute('fill', '#7080b0');
+  t.setAttribute('font-family',"'SF Mono','Fira Code',monospace");
+  t.setAttribute('font-size','10');
+  t.setAttribute('font-weight','600');
+  t.setAttribute('letter-spacing','0.1em');
+  t.textContent=b.label;
+  bgGroup.appendChild(t);
+});
+svg.appendChild(bgGroup);
+
+// Draw edges
+const edgeGroup=document.createElementNS(SVG_NS,'g');
+edgeGroup.setAttribute('id','edge-group');
+edges.forEach(e=>{
+  const fn=nodeById(e.from), tn=nodeById(e.to);
+  if(!fn||!tn) return;
+  const { ex, ey, ix, iy }=edgePort(fn,tn);
+  const midX=(ex+ix)/2, midY=(ey+iy)/2;
+
+  // Draw path (L-bend routing)
+  const path=document.createElementNS(SVG_NS,'path');
+  let d;
+  const dx=ix-ex, dy=iy-ey;
+  // Simple L-bend: go vertical then horizontal
+  if(Math.abs(dy)>Math.abs(dx)*0.5){
+    const my=(ey+iy)/2;
+    d=`M ${ex} ${ey} L ${ex} ${my} L ${ix} ${my} L ${ix} ${iy}`;
+  } else {
+    const mx=(ex+ix)/2;
+    d=`M ${ex} ${ey} L ${mx} ${ey} L ${mx} ${iy} L ${ix} ${iy}`;
+  }
+  path.setAttribute('d',d);
+  path.setAttribute('fill','none');
+  path.setAttribute('stroke',e.color);
+  path.setAttribute('stroke-width', e.style==='dashed'?'1.2':'1.5');
+  if(e.style==='dashed') path.setAttribute('stroke-dasharray','5 4');
+  path.setAttribute('marker-end', markerForColor(e.color));
+  path.setAttribute('opacity','0.8');
+  edgeGroup.appendChild(path);
+
+  // Edge label
+  if(e.label){
+    const lx=midX, ly=midY;
+    const lines=e.label.split('\n');
+    lines.forEach((line,li)=>{
+      const t=document.createElementNS(SVG_NS,'text');
+      t.setAttribute('x',lx);
+      t.setAttribute('y',ly+li*12);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('fill','#505870');
+      t.setAttribute('font-family',"'Helvetica Neue',Arial,sans-serif");
+      t.setAttribute('font-size','9');
+      t.setAttribute('opacity','0.9');
+      // small bg rect for readability
+      t.textContent=line;
+      edgeGroup.appendChild(t);
+    });
+  }
+});
+svg.appendChild(edgeGroup);
+
+// Draw nodes
+const nodeGroup=document.createElementNS(SVG_NS,'g');
+nodeGroup.setAttribute('id','node-group');
+
+function wrapText(label){
+  return label.split('\n');
+}
+
+nodes.forEach(n=>{
+  const g=document.createElementNS(SVG_NS,'g');
+  g.setAttribute('class','node');
+  g.setAttribute('data-id',n.id);
+  g.setAttribute('data-section',n.section);
+
+  const lines=wrapText(n.label);
+  const lineH=13;
+  const textH=lines.length*lineH;
+
+  if(n.shape==='start'){
+    const c=document.createElementNS(SVG_NS,'ellipse');
+    c.setAttribute('cx',n.x); c.setAttribute('cy',n.y);
+    c.setAttribute('rx',28); c.setAttribute('ry',18);
+    c.setAttribute('fill','#d4f5e2');
+    c.setAttribute('stroke','#2a9a60');
+    c.setAttribute('stroke-width','2');
+    g.appendChild(c);
+    const t=document.createElementNS(SVG_NS,'text');
+    t.setAttribute('x',n.x); t.setAttribute('y',n.y+4);
+    t.setAttribute('text-anchor','middle');
+    t.setAttribute('fill','#0a5030');
+    t.setAttribute('font-family',"'Helvetica Neue',Arial,sans-serif");
+    t.setAttribute('font-size','11'); t.setAttribute('font-weight','700');
+    t.textContent=n.label; g.appendChild(t);
+
+  } else if(n.shape==='diamond'){
+    const s=GS+4;
+    const pts=`${n.x},${n.y-s/2} ${n.x+s},${n.y} ${n.x},${n.y+s/2} ${n.x-s},${n.y}`;
+    const poly=document.createElementNS(SVG_NS,'polygon');
+    poly.setAttribute('points',pts);
+    poly.setAttribute('fill','#fff8dc');
+    poly.setAttribute('stroke','#c09000');
+    poly.setAttribute('stroke-width','1.5');
+    g.appendChild(poly);
+    lines.forEach((line,li)=>{
+      const t=document.createElementNS(SVG_NS,'text');
+      const yOff = (li-(lines.length-1)/2)*lineH;
+      t.setAttribute('x',n.x); t.setAttribute('y',n.y+yOff+4);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('fill','#6a5000');
+      t.setAttribute('font-family',"'Helvetica Neue',Arial,sans-serif");
+      t.setAttribute('font-size','9.5'); t.setAttribute('font-weight','600');
+      t.textContent=line; g.appendChild(t);
+    });
+
+  } else if(n.shape==='oval'){
+    const isGood=n.label.includes('✓')||n.label.includes('Assigned')||n.label.includes('Done');
+    const isBad=n.label.includes('✗')||n.label.includes('Fail')||n.label.includes('Cancel')||n.label.includes('Reject')||n.label.includes('Disq')||n.label.includes('Freeze')||n.label.includes('Term');
+    const fill=isGood?'#d4f5e2':(isBad?'#ffe0e0':'#e8e8f8');
+    const stroke=isGood?'#2a9a60':(isBad?'#d03030':'#7070c0');
+    const tc2=isGood?'#0a5030':(isBad?'#8a0a0a':'#2a2a70');
+    const rx=OS+4, ry=OS/2+8;
+    const e2=document.createElementNS(SVG_NS,'ellipse');
+    e2.setAttribute('cx',n.x); e2.setAttribute('cy',n.y);
+    e2.setAttribute('rx',rx); e2.setAttribute('ry',ry);
+    e2.setAttribute('fill',fill);
+    e2.setAttribute('stroke',stroke);
+    e2.setAttribute('stroke-width','1.5');
+    g.appendChild(e2);
+    lines.forEach((line,li)=>{
+      const t=document.createElementNS(SVG_NS,'text');
+      const yOff=(li-(lines.length-1)/2)*12;
+      t.setAttribute('x',n.x); t.setAttribute('y',n.y+yOff+4);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('fill',tc2);
+      t.setAttribute('font-family',"'Helvetica Neue',Arial,sans-serif");
+      t.setAttribute('font-size','9.5'); t.setAttribute('font-weight','600');
+      t.textContent=line; g.appendChild(t);
+    });
+
+  } else {
+    // rect
+    const bw=W, bh=Math.max(H, textH+18);
+    const secColors={
+      sales:   { fill:'#ffffff', stroke:'#7090d0', tc:'#1a3070' },
+      rfp:     { fill:'#ffffff', stroke:'#9060c0', tc:'#4a1870' },
+      staffing:{ fill:'#ffffff', stroke:'#30a070', tc:'#0a4a28' },
+    };
+    const sc=secColors[n.section]||secColors.sales;
+    const rect=document.createElementNS(SVG_NS,'rect');
+    rect.setAttribute('x',n.x-bw/2); rect.setAttribute('y',n.y-bh/2);
+    rect.setAttribute('width',bw); rect.setAttribute('height',bh);
+    rect.setAttribute('rx','7');
+    rect.setAttribute('fill',sc.fill);
+    rect.setAttribute('stroke',sc.stroke);
+    rect.setAttribute('stroke-width','1.5');
+    // subtle top border accent
+    g.appendChild(rect);
+    lines.forEach((line,li)=>{
+      const t=document.createElementNS(SVG_NS,'text');
+      const yOff=(li-(lines.length-1)/2)*lineH;
+      t.setAttribute('x',n.x); t.setAttribute('y',n.y+yOff+4);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('fill',sc.tc);
+      t.setAttribute('font-family',"'Helvetica Neue',Arial,sans-serif");
+      t.setAttribute('font-size', li===0?'10.5':'9');
+      t.setAttribute('font-weight', li===0?'700':'400');
+      t.textContent=line; g.appendChild(t);
+    });
+  }
+
+  // Tooltip interaction
+  g.addEventListener('mouseenter',(e)=>{
+    const tt=document.getElementById('tooltip');
+    document.getElementById('tt-title').textContent=n.label.replace(/\n/g,' ');
+    document.getElementById('tt-desc').textContent=n.desc;
+    const rolesDiv=document.getElementById('tt-roles');
+    rolesDiv.innerHTML='';
+    n.roles.forEach(r=>{
+      const rc=ROLE_COLORS[r];
+      if(!rc) return;
+      const pill=document.createElement('span');
+      pill.className='role-pill';
+      pill.style.background=rc.bg;
+      pill.style.border=`1px solid ${rc.border}`;
+      pill.style.color=rc.text;
+      pill.textContent=r;
+      rolesDiv.appendChild(pill);
+    });
+    tt.style.display='block';
+    tt.style.left=(e.clientX+14)+'px';
+    tt.style.top=(e.clientY-10)+'px';
+  });
+  g.addEventListener('mousemove',(e)=>{
+    const tt=document.getElementById('tooltip');
+    tt.style.left=(e.clientX+14)+'px';
+    tt.style.top=(e.clientY-10)+'px';
+  });
+  g.addEventListener('mouseleave',()=>{
+    document.getElementById('tooltip').style.display='none';
+  });
+
+  nodeGroup.appendChild(g);
+});
+svg.appendChild(nodeGroup);
+
+// ─────────────────────────────────────────────
+//  PAN & ZOOM
+// ─────────────────────────────────────────────
+let scale=0.28, tx=30, ty=20;
+let dragging=false, lastX=0, lastY=0;
+const wrap=document.getElementById('canvas-wrap');
+
+function applyTransform(){
+  svg.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+  document.getElementById('zoom-info').textContent=Math.round(scale*100)+'%';
+  drawMinimap();
+}
+applyTransform();
+
+wrap.addEventListener('mousedown',e=>{
+  if(e.button!==0) return;
+  dragging=true; lastX=e.clientX; lastY=e.clientY;
+  wrap.classList.add('dragging');
+});
+window.addEventListener('mouseup',()=>{ dragging=false; wrap.classList.remove('dragging'); });
+window.addEventListener('mousemove',e=>{
+  if(!dragging) return;
+  tx+=e.clientX-lastX; ty+=e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  applyTransform();
+});
+wrap.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const factor=e.deltaY<0?1.1:0.9;
+  const rect=wrap.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  tx=mx-(mx-tx)*factor; ty=my-(my-ty)*factor;
+  scale*=factor; scale=Math.max(0.1,Math.min(4,scale));
+  applyTransform();
+},{passive:false});
+
+function zoom(f){
+  const rect=wrap.getBoundingClientRect();
+  const cx=rect.width/2, cy=rect.height/2;
+  tx=cx-(cx-tx)*f; ty=cy-(cy-ty)*f;
+  scale*=f; scale=Math.max(0.1,Math.min(4,scale));
+  applyTransform();
+}
+
+function resetView(){
+  const rect=wrap.getBoundingClientRect();
+  scale=0.28; tx=30; ty=20;
+  applyTransform();
+}
+
+// ─────────────────────────────────────────────
+//  FILTER SECTIONS
+// ─────────────────────────────────────────────
+function filterSection(sec){
+  document.querySelectorAll('.btn[id^="btn-"]').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+sec).classList.add('active');
+  nodeGroup.querySelectorAll('.node').forEach(g=>{
+    const ns=g.getAttribute('data-section');
+    g.style.opacity=(sec==='all'||ns===sec)?'1':'0.08';
+  });
+  edgeGroup.querySelectorAll('path,text').forEach((el,i)=>{
+    // Show all edges if 'all'
+    if(sec==='all'){ el.style.opacity=''; return; }
+    // Otherwise filter based on connected nodes
+    el.style.opacity='0.05';
+  });
+  if(sec!=='all'){
+    edges.forEach((e,i)=>{
+      const fn=nodeById(e.from), tn=nodeById(e.to);
+      if(fn&&tn&&(fn.section===sec||tn.section===sec)){
+        // show edge paths and labels
+      }
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
+//  MINIMAP
+// ─────────────────────────────────────────────
+function drawMinimap(){
+  const mm=document.getElementById('mm-canvas');
+  const ctx=mm.getContext('2d');
+  mm.width=160; mm.height=90;
+  ctx.fillStyle='#f0f2f7';
+  ctx.fillRect(0,0,160,90);
+
+  const sx=160/CW, sy=90/CH;
+  const s2=Math.min(sx,sy)*0.8;
+
+  nodes.forEach(n=>{
+    const col={sales:'#5070c0',rfp:'#9050c0',staffing:'#20a060'}[n.section]||'#8090b0';
+    ctx.fillStyle=col;
+    const mx=(n.x-bounds.minX+50)*s2+5;
+    const my=(n.y-bounds.minY+50)*s2+5;
+    ctx.fillRect(mx-3,my-2,6,4);
+  });
+
+  // Viewport indicator
+  const vw=wrap.offsetWidth/scale, vh=wrap.offsetHeight/scale;
+  const vx=(-tx/scale-bounds.minX+50)*s2+5;
+  const vy=(-ty/scale-bounds.minY+50)*s2+5;
+  ctx.strokeStyle='rgba(0,0,0,0.4)';
+  ctx.lineWidth=1;
+  ctx.strokeRect(vx, vy, vw*s2, vh*s2);
+}
+drawMinimap();
+</script>
+</body>
+</html>
